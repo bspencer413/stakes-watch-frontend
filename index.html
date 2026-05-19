@@ -59,7 +59,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.2.3';
+const APP_VERSION = '0.2.4';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -591,15 +591,17 @@ function App() {
     try {
       const fresh = await fetchKalshiMarket(meta.ticker);
       if (!fresh) { alert('Could not reach Kalshi. Try again later.'); return; }
+      const now = Date.now();
       const newSnap = buildSnapshot(fresh);
       const oldSnap = getSnapshot(drawerData.watchlistId);
       const threshold = (meta && meta.threshold) || DEFAULT_THRESHOLD;
       if (!snapshotChanged(oldSnap, newSnap, threshold)) {
         showToast('No move past your threshold');
+        setDrawerData(prev => prev ? Object.assign({}, prev, { lastCheckedAt: now, market: fresh }) : null);
         return;
       }
       saveSnapshot(drawerData.watchlistId, newSnap);
-      setDrawerData(prev => prev ? Object.assign({}, prev, { mode: 'mymarkets', snapshot: newSnap, market: fresh }) : null);
+      setDrawerData(prev => prev ? Object.assign({}, prev, { mode: 'mymarkets', snapshot: newSnap, market: fresh, lastCheckedAt: now }) : null);
     } catch(e) { alert('Error: ' + e.message); }
     finally { setChecking(false); }
   };
@@ -654,7 +656,7 @@ function App() {
 
   const Drawer = () => {
     if (!drawerData) return null;
-    const { mode, name, meta, snapshot, market, loading: drawerLoading } = drawerData;
+    const { mode, name, meta, snapshot, market, loading: drawerLoading, lastCheckedAt } = drawerData;
     const threshold = (meta && meta.threshold) || DEFAULT_THRESHOLD;
     return (
       <>
@@ -677,6 +679,7 @@ function App() {
                     </div>
                     {(meta && meta.yes_sub_title) && <p className="text-emerald-200 text-base text-center"><span className="font-bold">YES:</span> {meta.yes_sub_title}</p>}
                     <p className="text-gray-400 text-base text-center">Alert threshold: <strong className="text-white">{threshold}%</strong></p>
+                    {lastCheckedAt && <p className="text-white/60 text-sm text-center">Last checked {new Date(lastCheckedAt).toLocaleString()}</p>}
                     <button onClick={checkForPriceMove} disabled={checking} className="w-full py-4 text-white rounded-xl font-bold text-2xl flex items-center justify-center gap-2 disabled:opacity-50" style={{ backgroundColor: 'var(--sw-accent)' }}>
                       <RefreshIcon /> {checking ? 'Checking...' : 'Check current price'}
                     </button>
@@ -699,10 +702,10 @@ function App() {
       <div style={{ minHeight: '100dvh', width: '100%', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'stretch', paddingTop: 'env(safe-area-inset-top)', paddingBottom: '2rem', backgroundColor: '#0a1525' }}>
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(' + SIGNIN_BG + ')', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', filter: 'var(--sw-signin-blur)', zIndex: 0 }} />
         <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(10,21,37,0.35)', zIndex: 1 }} />
-        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'stretch', flex: 1, justifyContent: 'center' }}>
-          <div style={{ textAlign: 'center', padding: '2rem 1.5rem 1.5rem' }}>
+        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'stretch', flex: 1, justifyContent: 'flex-start', paddingTop: '3dvh' }}>
+          <div style={{ textAlign: 'center', padding: '0.5rem 1.5rem 1rem' }}>
             <h1 style={{ color: '#fff', fontSize: isPhone ? '6rem' : '8rem', fontWeight: 700, fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', lineHeight: 0.9, textShadow: '0 4px 20px rgba(0,0,0,0.95), 0 2px 8px rgba(0,0,0,0.9)', margin: 0, textTransform: 'uppercase' }}>Stakes<br/>Watch</h1>
-            <p style={{ color: '#fff', fontSize: isPhone ? '2.4rem' : '3rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', lineHeight: 1.05, textShadow: '0 2px 8px rgba(0,0,0,0.9)', marginTop: '1rem', textTransform: 'uppercase', fontWeight: 500 }}>What stakes are<br/>you watching?</p>
+            <p style={{ color: '#fff', fontSize: isPhone ? '2rem' : '2.5rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', lineHeight: 1.05, textShadow: '0 2px 8px rgba(0,0,0,0.9)', marginTop: '1rem', textTransform: 'uppercase', fontWeight: 500 }}>What stakes are<br/>you watching?</p>
           </div>
           <div style={{ paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
             <div className="rounded-2xl p-4 shadow-2xl space-y-3" style={{ backgroundColor: 'rgba(10,21,37,0.75)', backdropFilter: 'blur(8px)', borderColor: 'var(--sw-card-border)', borderWidth: '1px' }}>
