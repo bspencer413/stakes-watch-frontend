@@ -59,7 +59,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.2.4';
+const APP_VERSION = '0.2.5';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -739,7 +739,7 @@ function App() {
           <div className="space-y-3" style={{ paddingTop: PT }}>
             <div className="flex flex-col items-center" style={{ height: PT, marginTop: '-' + PT, paddingTop: '4rem', paddingBottom: '1.5rem', pointerEvents: 'none' }}>
               <h1 className="text-white text-center" style={{ fontSize: isPhone ? '6rem' : '8rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', lineHeight: 0.9, textShadow: '0 4px 16px rgba(0,0,0,0.9)', textTransform: 'uppercase', fontWeight: 700 }}>Stakes<br/>Watch</h1>
-              <p className="text-white text-center" style={{ fontSize: isPhone ? '2.4rem' : '3rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', lineHeight: 1.05, textShadow: '0 2px 8px rgba(0,0,0,0.9)', marginTop: '1rem', textTransform: 'uppercase', fontWeight: 500 }}>What stakes are<br/>you watching?</p>
+              <p className="text-white text-center" style={{ fontSize: isPhone ? '2rem' : '2.5rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', lineHeight: 1.05, textShadow: '0 2px 8px rgba(0,0,0,0.9)', marginTop: '1rem', textTransform: 'uppercase', fontWeight: 500 }}>What stakes are<br/>you watching?</p>
             </div>
             <div className={cardClass} style={Object.assign({}, cardStyle, { overflowY: 'auto', maxHeight: 'calc(100dvh - ' + PT + ' - 6rem)' })}>
               {searching && <p className="text-white text-center py-4 animate-pulse text-xl">Searching Kalshi...</p>}
