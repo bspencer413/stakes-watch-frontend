@@ -59,7 +59,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.2.6';
+const APP_VERSION = '0.2.7';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -265,8 +265,8 @@ const CardPageHeader = ({ title, subtitle }) => (
 
 const PageWrapper = ({ children }) => (
   <div style={{ minHeight: '100dvh', width: '100%', position: 'relative', paddingTop: 'env(safe-area-inset-top)', paddingBottom: '5rem', backgroundColor: '#0a1525' }}>
-    <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(' + SIGNIN_BG + ')', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed', filter: 'blur(8px) brightness(0.4)', zIndex: 0 }} />
-    <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(10,21,37,0.55)', zIndex: 1 }} />
+    <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(' + SIGNIN_BG + ')', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed', filter: 'blur(8px) brightness(0.7)', zIndex: 0 }} />
+    <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(10,21,37,0.30)', zIndex: 1 }} />
     <div style={{ position: 'relative', zIndex: 10 }}>{children}</div>
   </div>
 );
