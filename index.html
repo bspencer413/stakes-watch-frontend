@@ -59,10 +59,10 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.1.1';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
-const SIGNIN_BG = SW_REPO + '/signin-background.jpg';
+const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
 const BILL_PHOTO = 'https://raw.githubusercontent.com/bspencer413/memorial-watch/main/Bill.jpeg';
 const TAGLINE = 'What stakes are you watching?';
 const TAGLINE_SUB = 'Track prediction markets on Kalshi';
@@ -170,6 +170,16 @@ const fetchKalshiMarket = async (ticker) => {
     if (!r.ok) return null;
     return await r.json();
   } catch(e) { return null; }
+};
+
+const fetchKalshiFeatured = async (limit) => {
+  try {
+    const url = API_BASE + '/kalshi/featured?limit=' + (limit || 10);
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data && data.results) || [];
+  } catch(e) { return []; }
 };
 
 // ── Icons ────────────────────────────────────────────────────────────────────
@@ -322,6 +332,8 @@ function App() {
   const [autoOpenId, setAutoOpenId] = useState(null);
   const [apiVersion, setApiVersion] = useState('...');
   const [toast, setToast] = useState(null);
+  const [featured, setFeatured] = useState([]);
+  const [featuredLoading, setFeaturedLoading] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -342,6 +354,15 @@ function App() {
     }
     // eslint-disable-next-line
   }, [autoOpenId, page, watchlist]);
+
+  // Fetch featured markets when user lands on Search page and hasn't searched yet
+  useEffect(() => {
+    if (auth && page === 'search' && !searched && featured.length === 0 && !featuredLoading) {
+      setFeaturedLoading(true);
+      fetchKalshiFeatured(10).then(list => { setFeatured(list); setFeaturedLoading(false); });
+    }
+    // eslint-disable-next-line
+  }, [auth, page, searched]);
 
   const loadWatchlist = async () => {
     try {
@@ -403,10 +424,12 @@ function App() {
   const isOnList = (ticker) => { if (!ticker) return false; return !!watchlist.find(w => { const m = parseMeta(w.location); return m && m.ticker === ticker; }); };
   const parseMeta = (locationField) => { if (!locationField) return null; try { return JSON.parse(locationField); } catch(e) { return null; } };
 
-  const doSearch = async () => {
+  const doSearch = async (overrideQuery) => {
     if (document.activeElement) document.activeElement.blur();
-    const q = (searchQuery || '').trim();
+    const rawQ = overrideQuery !== undefined && overrideQuery !== null ? overrideQuery : searchQuery;
+    const q = (rawQ || '').trim();
     if (!q || q.length < 2) { alert('Please enter a search keyword.'); return; }
+    if (overrideQuery !== undefined && overrideQuery !== null) setSearchQuery(q);
     setSearching(true); setSearchResults(null); setSelectedMarket(null);
     try {
       const markets = await fetchKalshiSearch(q);
@@ -415,6 +438,13 @@ function App() {
       if (markets.length === 1) setSelectedMarket(markets[0]);
     } catch(e) { setSearchResults({ markets: [], query: q }); setSearched(true); }
     finally { setSearching(false); }
+  };
+
+  // Tap a featured market → jump straight to the save flow as if it were a 1-result search
+  const pickFeatured = (m) => {
+    setSearchResults({ markets: [m], query: m.title || m.ticker });
+    setSelectedMarket(m);
+    setSearched(true);
   };
 
   // SAVE: POST → fetch full market → store snapshot → navigate → auto-open My Markets drawer
@@ -661,12 +691,50 @@ function App() {
             <div className={cardClass} style={Object.assign({}, cardStyle, { overflowY: 'auto', maxHeight: 'calc(100dvh - ' + PT + ' - 6rem)' })}>
               {searching && <p className="text-white text-center py-4 animate-pulse text-xl">Searching Kalshi...</p>}
               {!searched ? (
-                <div className="space-y-2">
+                <div className="space-y-4">
                   <ClearableInput value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && doSearch()} placeholder="Search markets (e.g. Fed, Bitcoin, hurricane)" inputClass={iClass} />
-                  <button onClick={doSearch} disabled={searching} className="w-full py-3 text-white rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-2xl font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>
+                  <button onClick={() => doSearch()} disabled={searching} className="w-full py-3 text-white rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-2xl font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>
                     <SearchIcon /> {searching ? 'Searching...' : 'Find Markets'}
                   </button>
-                  <p className="text-gray-300 text-sm text-center">Politics, Fed, crypto, sports, weather, awards, and more</p>
+
+                  {/* Example query chips */}
+                  <div>
+                    <p className="text-white/70 text-base text-center mb-2">Try one of these:</p>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {['Fed', 'Bitcoin', 'Election', 'Super Bowl', 'Hurricane', 'Oscar', 'AI', 'Inflation'].map(t => (
+                        <button key={t} onClick={() => doSearch(t)} disabled={searching}
+                          className="px-4 py-2 bg-black/40 border border-white/20 rounded-full text-base text-white hover:bg-black/60 disabled:opacity-50">
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Featured markets — top by 24h volume on Kalshi */}
+                  <div>
+                    <p className="text-white/70 text-base text-center mb-2">Most active right now</p>
+                    {featuredLoading && <p className="text-white/60 text-center py-3 animate-pulse text-base">Loading featured markets...</p>}
+                    {!featuredLoading && featured.length === 0 && <p className="text-white/40 text-center py-2 text-base">Featured markets unavailable right now.</p>}
+                    {!featuredLoading && featured.length > 0 && (
+                      <div className="space-y-2">
+                        {featured.map((m, i) => {
+                          const title = m.title || m.subtitle || m.ticker;
+                          return (
+                            <button key={i} onClick={() => pickFeatured(m)} className="w-full p-3 bg-black/40 border border-white/15 rounded-xl text-left hover:bg-black/60">
+                              <p className="text-white text-lg font-bold leading-snug">{title}</p>
+                              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                                {m.last_price !== null && m.last_price !== undefined && <span className="text-emerald-300 text-base font-bold">{fmtPrice(m.last_price)} YES</span>}
+                                {m.category && <span className="text-white/60 text-xs uppercase tracking-wider">{m.category}</span>}
+                                {m.volume_24h !== undefined && m.volume_24h !== null && <span className="text-white/60 text-xs">Vol {fmtVolume(m.volume_24h)}</span>}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-gray-400 text-xs text-center pt-2">Tap a market to save it. Politics, Fed, crypto, sports, weather, awards, and more — Kalshi.</p>
                 </div>
               ) : (<SearchResultView />)}
             </div>
@@ -797,6 +865,19 @@ function App() {
                 <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">2.</span><p className="text-gray-100 text-xl">Save the ones you want to follow. We capture the current YES price.</p></div>
                 <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">3.</span><p className="text-gray-100 text-xl">Tap a market on Watchlist to check the current price right now.</p></div>
                 <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">4.</span><p className="text-gray-100 text-xl">We check every hour. If a market moves past 10%, hits its 24h or 1h close window, or resolves — you get an alert.</p></div>
+              </div>
+            </div>
+            <div className={cardClass} style={cardStyle}>
+              <h3 className="text-white text-2xl font-bold mb-3 text-center" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>What kinds of markets trade</h3>
+              <p className="text-white/50 text-base text-center italic mb-4">Reference guide — expanded in future versions</p>
+              <div className="space-y-3 text-gray-100 text-xl leading-relaxed">
+                <p><strong className="text-white">Politics & elections</strong> — vote outcomes, approval ratings, primary results.</p>
+                <p><strong className="text-white">Economy & Fed</strong> — rate decisions, inflation prints, GDP releases.</p>
+                <p><strong className="text-white">Crypto</strong> — Bitcoin and Ethereum price targets, ETF flows.</p>
+                <p><strong className="text-white">Sports</strong> — Super Bowl, NBA championship, World Series, Stanley Cup, World Cup.</p>
+                <p><strong className="text-white">Weather</strong> — hurricanes, temperature records, snowfall.</p>
+                <p><strong className="text-white">Pop culture</strong> — Oscars, Grammys, Emmys, awards.</p>
+                <p><strong className="text-white">Tech</strong> — AI benchmarks, space launches, product milestones.</p>
               </div>
             </div>
             <div className={cardClass} style={cardStyle}>
