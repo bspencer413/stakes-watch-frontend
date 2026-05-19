@@ -59,7 +59,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.2.5';
+const APP_VERSION = '0.2.6';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -126,6 +126,26 @@ const fmtClockTime = (d) => {
     const dt = d || new Date();
     return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   } catch(e) { return ''; }
+};
+
+// Prefer event-level title as the main heading — it's the actual question
+// ("Will OpenAI IPO?"). Market.title is sometimes just the answer slug
+// ("Before 2030") for multi-option events, which is meaningless on its own.
+const marketHeading = (m) => {
+  if (!m) return '';
+  const evt = (m.event_title || '').trim();
+  const t = (m.title || m.subtitle || m.ticker || '').trim();
+  return evt || t || '';
+};
+
+// The market's specific option/answer, shown alongside the heading when distinct.
+// Returns empty string when event_title and market title carry the same content.
+const marketDetail = (m) => {
+  if (!m) return '';
+  const evt = (m.event_title || '').trim();
+  const t = (m.title || m.subtitle || '').trim();
+  if (evt && t && evt !== t) return t;
+  return '';
 };
 
 // Local price snapshot store
@@ -501,7 +521,9 @@ function App() {
   const saveMarket = async () => {
     if (!selectedMarket) return;
     if (isOnList(selectedMarket.ticker)) { alert('That market is already on your watchlist.'); return; }
-    const title = selectedMarket.title || selectedMarket.subtitle || selectedMarket.ticker;
+    const heading = marketHeading(selectedMarket);
+    const detail = marketDetail(selectedMarket);
+    const title = detail ? heading + ' · ' + detail : (heading || selectedMarket.ticker);
     setLoadingSave(true);
     try {
       const token = localStorage.getItem('token');
@@ -509,6 +531,8 @@ function App() {
         platform: 'kalshi',
         ticker: selectedMarket.ticker,
         event_ticker: selectedMarket.event_ticker,
+        event_title: selectedMarket.event_title || '',
+        event_sub_title: selectedMarket.event_sub_title || '',
         subtitle: selectedMarket.subtitle || '',
         yes_sub_title: selectedMarket.yes_sub_title || '',
         no_sub_title: selectedMarket.no_sub_title || '',
@@ -614,14 +638,16 @@ function App() {
 
   const MarketCard = ({ market, showSaveButton }) => {
     if (!market) return null;
-    const title = market.title || market.subtitle || market.ticker;
+    const heading = marketHeading(market);
+    const detail = marketDetail(market);
     const alreadySaved = isOnList(market.ticker);
     const last = market.last_price;
     const noPrice = (last !== null && last !== undefined) ? (100 - last) : null;
     return (
       <div className="rounded-2xl overflow-hidden border border-white/15 shadow-lg" style={{ backgroundColor: 'rgba(10,21,37,0.65)' }}>
         <div className="px-5 py-3 text-center" style={{ background: 'linear-gradient(90deg, #0d3a3a, #0a1f4a)' }}>
-          <p className="text-white font-bold text-2xl leading-snug">{title}</p>
+          <p className="text-white font-bold text-2xl leading-snug">{heading}</p>
+          {detail && <p className="text-white/80 text-lg mt-1">Option: <strong>{detail}</strong></p>}
           {market.category && <p className="text-white/70 text-base uppercase tracking-wider mt-1">{market.category}</p>}
         </div>
         <div className="p-4 space-y-3">
@@ -784,7 +810,9 @@ function App() {
                       {!categoryLoading && categoryMarkets.length > 0 && (
                         <div className="space-y-2">
                           {categoryMarkets.map((m, i) => {
-                            const title = m.title || m.subtitle || m.ticker;
+                            const heading = marketHeading(m);
+                            const detail = marketDetail(m);
+                            const title = detail ? heading + ' · ' + detail : heading;
                             const delta = fmtPriceDelta(m.last_price, m.previous_price);
                             const deltaUp = delta && delta.charAt(0) === '▲';
                             const countdown = fmtCountdown(m.close_time);
@@ -1034,7 +1062,9 @@ function App() {
           <div className="px-5 py-3 text-center" style={{ background: 'linear-gradient(90deg, #0d3a3a, #0a1f4a)' }}><p className="text-white font-bold text-2xl">{markets.length} markets found</p><p className="text-white/80 text-xl">Pick one</p></div>
           <div className="p-4 space-y-2">
             {markets.map((m, i) => {
-              const title = m.title || m.subtitle || m.ticker;
+              const heading = marketHeading(m);
+              const detail = marketDetail(m);
+              const title = detail ? heading + ' · ' + detail : heading;
               return (
                 <button key={i} onClick={() => setSelectedMarket(m)} className="w-full p-3 bg-black/40 border border-white/15 rounded-xl text-left">
                   <p className="text-white text-xl font-bold leading-snug">{title}</p>
