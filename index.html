@@ -59,7 +59,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.1.1';
+const APP_VERSION = '0.2.0';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -182,6 +182,25 @@ const fetchKalshiFeatured = async (limit) => {
   } catch(e) { return []; }
 };
 
+const fetchKalshiCategories = async () => {
+  try {
+    const r = await fetch(API_BASE + '/kalshi/categories');
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data && data.categories) || [];
+  } catch(e) { return []; }
+};
+
+const fetchKalshiMarketsByCategory = async (cat, limit) => {
+  try {
+    const url = API_BASE + '/kalshi/markets-by-category?cat=' + encodeURIComponent(cat || '') + '&limit=' + (limit || 30);
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data && data.results) || [];
+  } catch(e) { return []; }
+};
+
 // ── Icons ────────────────────────────────────────────────────────────────────
 const SearchIcon = () => (<svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>);
 const HeartIcon = () => (<svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>);
@@ -210,8 +229,9 @@ const CardPageHeader = ({ title, subtitle }) => (
 );
 
 const PageWrapper = ({ children }) => (
-  <div style={{ minHeight: '100dvh', width: '100%', position: 'relative', paddingTop: 'env(safe-area-inset-top)', paddingBottom: '5rem', backgroundImage: 'var(--sw-bg-gradient)', backgroundSize: 'cover', backgroundAttachment: 'scroll' }}>
-    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'var(--sw-bg-overlay)' }} />
+  <div style={{ minHeight: '100dvh', width: '100%', position: 'relative', paddingTop: 'env(safe-area-inset-top)', paddingBottom: '5rem', backgroundColor: '#0a1525' }}>
+    <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(' + SIGNIN_BG + ')', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed', filter: 'blur(8px) brightness(0.4)', zIndex: 0 }} />
+    <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(10,21,37,0.55)', zIndex: 1 }} />
     <div style={{ position: 'relative', zIndex: 10 }}>{children}</div>
   </div>
 );
@@ -334,6 +354,10 @@ function App() {
   const [toast, setToast] = useState(null);
   const [featured, setFeatured] = useState([]);
   const [featuredLoading, setFeaturedLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [currentCategory, setCurrentCategory] = useState(null);
+  const [categoryMarkets, setCategoryMarkets] = useState([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -355,14 +379,23 @@ function App() {
     // eslint-disable-next-line
   }, [autoOpenId, page, watchlist]);
 
-  // Fetch featured markets when user lands on Search page and hasn't searched yet
+  // Fetch Kalshi category list once after sign-in; used as the primary nav on Search page.
   useEffect(() => {
-    if (auth && page === 'search' && !searched && featured.length === 0 && !featuredLoading) {
-      setFeaturedLoading(true);
-      fetchKalshiFeatured(10).then(list => { setFeatured(list); setFeaturedLoading(false); });
+    if (auth && categories.length === 0) {
+      fetchKalshiCategories().then(list => { if (list && list.length) setCategories(list); });
     }
     // eslint-disable-next-line
-  }, [auth, page, searched]);
+  }, [auth]);
+
+  // Load markets for the currently-selected category. Re-runs when user picks a different category.
+  useEffect(() => {
+    if (!currentCategory) { setCategoryMarkets([]); return; }
+    setCategoryLoading(true);
+    fetchKalshiMarketsByCategory(currentCategory, 30).then(list => {
+      setCategoryMarkets(list || []);
+      setCategoryLoading(false);
+    });
+  }, [currentCategory]);
 
   const loadWatchlist = async () => {
     try {
@@ -420,7 +453,7 @@ function App() {
       doLogout(); alert('Your account has been permanently deleted.');
     } catch (error) { alert('Error: ' + error.message); }
   };
-  const clearSearch = () => { setSearchResults(null); setSearched(false); setSelectedMarket(null); setSearchQuery(''); };
+  const clearSearch = () => { setSearchResults(null); setSearched(false); setSelectedMarket(null); setSearchQuery(''); setCurrentCategory(null); setCategoryMarkets([]); };
   const isOnList = (ticker) => { if (!ticker) return false; return !!watchlist.find(w => { const m = parseMeta(w.location); return m && m.ticker === ticker; }); };
   const parseMeta = (locationField) => { if (!locationField) return null; try { return JSON.parse(locationField); } catch(e) { return null; } };
 
@@ -692,49 +725,67 @@ function App() {
               {searching && <p className="text-white text-center py-4 animate-pulse text-xl">Searching Kalshi...</p>}
               {!searched ? (
                 <div className="space-y-4">
-                  <ClearableInput value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && doSearch()} placeholder="Search markets (e.g. Fed, Bitcoin, hurricane)" inputClass={iClass} />
-                  <button onClick={() => doSearch()} disabled={searching} className="w-full py-3 text-white rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-2xl font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>
-                    <SearchIcon /> {searching ? 'Searching...' : 'Find Markets'}
-                  </button>
 
-                  {/* Example query chips */}
-                  <div>
-                    <p className="text-white/70 text-base text-center mb-2">Try one of these:</p>
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      {['Fed', 'Bitcoin', 'Election', 'Super Bowl', 'Hurricane', 'Oscar', 'AI', 'Inflation'].map(t => (
-                        <button key={t} onClick={() => doSearch(t)} disabled={searching}
-                          className="px-4 py-2 bg-black/40 border border-white/20 rounded-full text-base text-white hover:bg-black/60 disabled:opacity-50">
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Featured markets — top by 24h volume on Kalshi */}
-                  <div>
-                    <p className="text-white/70 text-base text-center mb-2">Most active right now</p>
-                    {featuredLoading && <p className="text-white/60 text-center py-3 animate-pulse text-base">Loading featured markets...</p>}
-                    {!featuredLoading && featured.length === 0 && <p className="text-white/40 text-center py-2 text-base">Featured markets unavailable right now.</p>}
-                    {!featuredLoading && featured.length > 0 && (
-                      <div className="space-y-2">
-                        {featured.map((m, i) => {
-                          const title = m.title || m.subtitle || m.ticker;
-                          return (
-                            <button key={i} onClick={() => pickFeatured(m)} className="w-full p-3 bg-black/40 border border-white/15 rounded-xl text-left hover:bg-black/60">
-                              <p className="text-white text-lg font-bold leading-snug">{title}</p>
-                              <div className="flex items-center gap-3 mt-1 flex-wrap">
-                                {m.last_price !== null && m.last_price !== undefined && <span className="text-emerald-300 text-base font-bold">{fmtPrice(m.last_price)} YES</span>}
-                                {m.category && <span className="text-white/60 text-xs uppercase tracking-wider">{m.category}</span>}
-                                {m.volume_24h !== undefined && m.volume_24h !== null && <span className="text-white/60 text-xs">Vol {fmtVolume(m.volume_24h)}</span>}
-                              </div>
-                            </button>
-                          );
-                        })}
+                  {/* Category-first navigation. Tap a category → markets in that category. */}
+                  {!currentCategory && (
+                    <div>
+                      <p className="text-white/80 text-lg text-center mb-3 font-semibold" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>Pick a category</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {categories.length === 0 && <p className="col-span-2 text-white/50 text-center py-3 text-base animate-pulse">Loading categories...</p>}
+                        {categories.map(c => (
+                          <button key={c} onClick={() => setCurrentCategory(c)}
+                            className="p-4 bg-black/40 border border-white/20 rounded-xl text-white text-lg font-bold hover:bg-black/60"
+                            style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>
+                            {c}
+                          </button>
+                        ))}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  <p className="text-gray-400 text-xs text-center pt-2">Tap a market to save it. Politics, Fed, crypto, sports, weather, awards, and more — Kalshi.</p>
+                  {/* Drilldown: markets within selected category */}
+                  {currentCategory && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <button onClick={() => setCurrentCategory(null)} className="text-white/80 text-base underline">← Categories</button>
+                        <p className="text-white text-xl font-bold" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{currentCategory}</p>
+                        <span className="text-white/40 text-xs w-16 text-right">{categoryMarkets.length}</span>
+                      </div>
+                      {categoryLoading && <p className="text-white/70 text-center py-6 animate-pulse text-lg">Loading markets...</p>}
+                      {!categoryLoading && categoryMarkets.length === 0 && (
+                        <p className="text-white/50 text-center py-4 text-base">No active markets in this category right now. Try another.</p>
+                      )}
+                      {!categoryLoading && categoryMarkets.length > 0 && (
+                        <div className="space-y-2">
+                          {categoryMarkets.map((m, i) => {
+                            const title = m.title || m.subtitle || m.ticker;
+                            return (
+                              <button key={i} onClick={() => pickFeatured(m)} className="w-full p-3 bg-black/40 border border-white/15 rounded-xl text-left hover:bg-black/60">
+                                <p className="text-white text-lg font-bold leading-snug">{title}</p>
+                                <div className="flex items-center gap-3 mt-1 flex-wrap">
+                                  {m.last_price !== null && m.last_price !== undefined && <span className="text-emerald-300 text-base font-bold">{fmtPrice(m.last_price)} YES</span>}
+                                  {m.volume_24h !== undefined && m.volume_24h !== null && m.volume_24h > 0 && <span className="text-white/60 text-xs">Vol {fmtVolume(m.volume_24h)}</span>}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Free-text search — secondary path, always available */}
+                  {!currentCategory && (
+                    <div className="pt-3 border-t border-white/15">
+                      <p className="text-white/60 text-base text-center mb-2">Or search by keyword</p>
+                      <ClearableInput value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && doSearch()} placeholder="e.g. Fed, Bitcoin, hurricane" inputClass={iClass} />
+                      <button onClick={() => doSearch()} disabled={searching} className="w-full py-2 mt-2 text-white rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-lg font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>
+                        <SearchIcon /> {searching ? 'Searching...' : 'Search'}
+                      </button>
+                    </div>
+                  )}
+
+                  <p className="text-gray-400 text-xs text-center pt-2">Tap a market to save it. Source: Kalshi.</p>
                 </div>
               ) : (<SearchResultView />)}
             </div>
