@@ -59,7 +59,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -111,6 +111,21 @@ const fmtVolume = (v) => {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
   return String(n);
+};
+
+const fmtPriceDelta = (current, previous) => {
+  if (current === null || current === undefined || previous === null || previous === undefined) return null;
+  if (current === previous) return null;
+  const diff = current - previous;
+  const arrow = diff > 0 ? '▲' : '▼';
+  return arrow + Math.abs(diff) + '¢';
+};
+
+const fmtClockTime = (d) => {
+  try {
+    const dt = d || new Date();
+    return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  } catch(e) { return ''; }
 };
 
 // Local price snapshot store
@@ -358,6 +373,7 @@ function App() {
   const [currentCategory, setCurrentCategory] = useState(null);
   const [categoryMarkets, setCategoryMarkets] = useState([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
+  const [categoryFetchedAt, setCategoryFetchedAt] = useState(null);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -389,10 +405,11 @@ function App() {
 
   // Load markets for the currently-selected category. Re-runs when user picks a different category.
   useEffect(() => {
-    if (!currentCategory) { setCategoryMarkets([]); return; }
+    if (!currentCategory) { setCategoryMarkets([]); setCategoryFetchedAt(null); return; }
     setCategoryLoading(true);
     fetchKalshiMarketsByCategory(currentCategory, 30).then(list => {
       setCategoryMarkets(list || []);
+      setCategoryFetchedAt(new Date());
       setCategoryLoading(false);
     });
   }, [currentCategory]);
@@ -746,11 +763,17 @@ function App() {
                   {/* Drilldown: markets within selected category */}
                   {currentCategory && (
                     <div>
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-2">
                         <button onClick={() => setCurrentCategory(null)} className="text-white/80 text-base underline">← Categories</button>
                         <p className="text-white text-xl font-bold" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{currentCategory}</p>
                         <span className="text-white/40 text-xs w-16 text-right">{categoryMarkets.length}</span>
                       </div>
+                      {!categoryLoading && categoryMarkets.length > 0 && (
+                        <div className="flex flex-col items-center mb-3">
+                          <p className="text-white/80 text-sm text-center leading-snug">Tap a market → <span className="text-emerald-300 font-semibold">Watchlist</span> (hourly alerts) or <span className="text-emerald-300 font-semibold">My Stakes</span> (instant updates)</p>
+                          {categoryFetchedAt && <p className="text-white/40 text-xs mt-1">As of {fmtClockTime(categoryFetchedAt)}</p>}
+                        </div>
+                      )}
                       {categoryLoading && <p className="text-white/70 text-center py-6 animate-pulse text-lg">Loading markets...</p>}
                       {!categoryLoading && categoryMarkets.length === 0 && (
                         <p className="text-white/50 text-center py-4 text-base">No active markets in this category right now. Try another.</p>
@@ -759,11 +782,22 @@ function App() {
                         <div className="space-y-2">
                           {categoryMarkets.map((m, i) => {
                             const title = m.title || m.subtitle || m.ticker;
+                            const delta = fmtPriceDelta(m.last_price, m.previous_price);
+                            const deltaUp = delta && delta.charAt(0) === '▲';
+                            const countdown = fmtCountdown(m.close_time);
+                            const hasYes = m.last_price !== null && m.last_price !== undefined;
+                            const noPrice = hasYes ? (100 - m.last_price) : null;
                             return (
                               <button key={i} onClick={() => pickFeatured(m)} className="w-full p-3 bg-black/40 border border-white/15 rounded-xl text-left hover:bg-black/60">
                                 <p className="text-white text-lg font-bold leading-snug">{title}</p>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  {hasYes && <span className="text-emerald-300 text-base font-bold">{fmtPrice(m.last_price)} YES</span>}
+                                  {hasYes && <span className="text-white/40">·</span>}
+                                  {hasYes && <span className="text-red-300 text-base font-bold">{fmtPrice(noPrice)} NO</span>}
+                                  {delta && <span className={(deltaUp ? 'text-emerald-300' : 'text-red-300') + ' text-sm font-bold'}>{delta}</span>}
+                                </div>
                                 <div className="flex items-center gap-3 mt-1 flex-wrap">
-                                  {m.last_price !== null && m.last_price !== undefined && <span className="text-emerald-300 text-base font-bold">{fmtPrice(m.last_price)} YES</span>}
+                                  {countdown && <span className="text-white/60 text-xs">Closes in {countdown}</span>}
                                   {m.volume_24h !== undefined && m.volume_24h !== null && m.volume_24h > 0 && <span className="text-white/60 text-xs">Vol {fmtVolume(m.volume_24h)}</span>}
                                 </div>
                               </button>
