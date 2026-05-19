@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0a1525">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Stakes Watch">
+  <title>Stakes Watch</title>
+  <meta name="description" content="Stakes Watch -- Track prediction markets. Add any Kalshi market to your watchlist. Get notified on price moves, resolutions, and time-to-close.">
+  <meta name="keywords" content="stakes watch, prediction markets, kalshi, event contracts, price alerts, market watch">
+  <meta name="robots" content="index, follow">
+  <meta name="author" content="Stakes Watch">
+  <link rel="canonical" href="https://stakeswatch.app">
+  <meta property="og:title" content="Stakes Watch -- Track Prediction Markets.">
+  <meta property="og:description" content="What stakes are you watching? Add any Kalshi market and get notified when the price moves.">
+  <meta property="og:url" content="https://stakeswatch.app">
+  <meta property="og:type" content="website">
+  <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjogIlN0YWtlcyBXYXRjaCIsICJzaG9ydF9uYW1lIjogIlNXIiwgInN0YXJ0X3VybCI6ICIvIiwgImRpc3BsYXkiOiAic3RhbmRhbG9uZSIsICJiYWNrZ3JvdW5kX2NvbG9yIjogIiMwYTE1MjUiLCAidGhlbWVfY29sb3IiOiAiIzBhMTUyNSJ9">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* SKIN CSS VARS -- reskinner v0.3 will target these */
+    :root {
+      --sw-accent: #00d4b8;
+      --sw-accent-2: #ef4444;
+      --sw-bg-gradient: linear-gradient(135deg, #0d3a3a 0%, #0a1525 50%, #0a1f4a 100%);
+      --sw-bg-overlay: rgba(0,0,0,0.20);
+      --sw-signin-blur: blur(0px);
+      --sw-card-bg: rgba(10,21,37,0.65);
+      --sw-card-border: rgba(255,255,255,0.12);
+      --sw-drawer-bg: #0a1525;
+      --sw-display-font: 'Oswald', 'Arial Narrow', Arial, sans-serif;
+    }
+    * { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    html, body { height: 100%; overflow-x: hidden; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .modal-drawer {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+      background: var(--sw-drawer-bg); border-radius: 20px 20px 0 0;
+      border-top: 1px solid var(--sw-card-border);
+      max-height: 85vh; overflow-y: auto;
+      transform: translateY(0); transition: transform 0.3s ease;
+      padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+    .modal-overlay { position: fixed; inset: 0; z-index: 99; background: rgba(0,0,0,0.6); }
+  </style>
+</head>
+<body style="margin:0;padding:0;">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+/* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
+const APP_NAME = 'Stakes Watch';
+const APP_VERSION = '0.1.0';
+const API_BASE = 'https://stakes-watch-backend.onrender.com';
+const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
+const SIGNIN_BG = SW_REPO + '/signin-background.jpg';
+const BILL_PHOTO = 'https://raw.githubusercontent.com/bspencer413/memorial-watch/main/Bill.jpeg';
+const TAGLINE = 'What stakes are you watching?';
+const TAGLINE_SUB = 'Track prediction markets on Kalshi';
+const DEFAULT_THRESHOLD = 10;
+
+const isPhone = window.innerWidth < 500;
+const isTablet = window.innerWidth >= 500 && window.innerWidth < 1024;
+const PT = isPhone ? '36vh' : isTablet ? '40vh' : '38vh';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const smartTitleCase = (s) => s ? s.trim().replace(/\s+/g, ' ') : s;
+
+const fmtPrice = (cents) => {
+  if (cents === null || cents === undefined || cents === '') return '—';
+  return cents + '¢';
+};
+
+const fmtPctChange = (oldP, newP) => {
+  if (!oldP || !newP || oldP === newP) return '';
+  const delta = newP - oldP;
+  const pct = (delta / oldP) * 100;
+  const sign = delta > 0 ? '+' : '';
+  return sign + pct.toFixed(1) + '%';
+};
+
+const fmtCountdown = (closeTimeStr) => {
+  if (!closeTimeStr) return '';
+  try {
+    const close = new Date(closeTimeStr);
+    const now = new Date();
+    const diffMs = close - now;
+    if (diffMs <= 0) return 'Closed';
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    if (days > 0) return days + 'd ' + hours + 'h';
+    if (hours > 0) return hours + 'h ' + mins + 'm';
+    return mins + 'm';
+  } catch(e) { return ''; }
+};
+
+const fmtVolume = (v) => {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  if (isNaN(n)) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
+};
+
+// Local price snapshot store
+const SNAPSHOT_KEY = (id) => 'sw_market_' + id;
+const saveSnapshot = (id, snap) => { if (!id || !snap) return; try { localStorage.setItem(SNAPSHOT_KEY(id), JSON.stringify(snap)); } catch(e) {} };
+const getSnapshot = (id) => { if (!id) return null; try { const raw = localStorage.getItem(SNAPSHOT_KEY(id)); return raw ? JSON.parse(raw) : null; } catch(e) { return null; } };
+const deleteSnapshotLocal = (id) => { if (!id) return; try { localStorage.removeItem(SNAPSHOT_KEY(id)); } catch(e) {} };
+
+const buildSnapshot = (market) => {
+  if (!market) return null;
+  return {
+    ticker: market.ticker,
+    title: market.title || market.subtitle || '',
+    last_price: market.last_price,
+    yes_bid: market.yes_bid,
+    yes_ask: market.yes_ask,
+    no_bid: market.no_bid,
+    no_ask: market.no_ask,
+    volume_24h: market.volume_24h,
+    status: market.status,
+    result: market.result || '',
+    close_time: market.close_time,
+    category: market.category || '',
+    capturedAt: Date.now()
+  };
+};
+
+const snapshotChanged = (oldSnap, newSnap, thresholdPct) => {
+  if (!oldSnap || !newSnap) return true;
+  if ((oldSnap.result || '') !== (newSnap.result || '') && newSnap.result) return true;
+  if ((oldSnap.status || '') !== (newSnap.status || '')) return true;
+  const oldP = oldSnap.last_price;
+  const newP = newSnap.last_price;
+  if (typeof oldP === 'number' && typeof newP === 'number' && oldP > 0) {
+    const pct = Math.abs((newP - oldP) / oldP) * 100;
+    if (pct >= (thresholdPct || DEFAULT_THRESHOLD)) return true;
+  }
+  return false;
+};
+
+// Kalshi (via Stakes Watch backend proxy — bypasses browser CORS)
+const fetchKalshiSearch = async (query) => {
+  try {
+    const url = API_BASE + '/kalshi/search?q=' + encodeURIComponent(query || '') + '&limit=50';
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data && data.results) || [];
+  } catch(e) { return []; }
+};
+
+const fetchKalshiMarket = async (ticker) => {
+  if (!ticker) return null;
+  try {
+    const url = API_BASE + '/kalshi/market/' + encodeURIComponent(ticker);
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+};
+
+// ── Icons ────────────────────────────────────────────────────────────────────
+const SearchIcon = () => (<svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>);
+const HeartIcon = () => (<svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>);
+const InfoIcon = () => (<svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>);
+const BellIcon = ({ red }) => (<svg className="w-7 h-7" fill="none" stroke={red ? 'var(--sw-accent-2)' : 'currentColor'} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>);
+const ChartIcon = () => (<svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>);
+const PlusIcon = () => (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>);
+const TrashIcon = () => (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>);
+const CheckIcon = () => (<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>);
+const RefreshIcon = () => (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>);
+const EyeIcon = () => (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>);
+const EyeOffIcon = () => (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>);
+
+const ClearableInput = ({ value, onChange, onBlur, onKeyPress, placeholder, type='text', maxLength, inputClass }) => (
+  <div className="relative">
+    <input type={type} name="market-search" inputMode="search" placeholder={placeholder} value={value} onChange={onChange} onBlur={onBlur} onKeyPress={onKeyPress} maxLength={maxLength} className={inputClass + ' pr-10'} autoCorrect="off" autoCapitalize="none" autoComplete="off" spellCheck="false" />
+    {value && value.length > 0 && (<button onClick={() => onChange({ target: { value: '' } })} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xl font-bold leading-none" type="button">X</button>)}
+  </div>
+);
+
+const CardPageHeader = ({ title, subtitle }) => (
+  <div className="mb-3 pb-2 border-b border-white/15 text-center">
+    <h2 className="text-4xl font-bold text-white" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{title}</h2>
+    {subtitle && <p className="text-gray-200 text-xl mt-1">{subtitle}</p>}
+  </div>
+);
+
+const PageWrapper = ({ children }) => (
+  <div style={{ minHeight: '100dvh', width: '100%', position: 'relative', paddingTop: 'env(safe-area-inset-top)', paddingBottom: '5rem', backgroundImage: 'var(--sw-bg-gradient)', backgroundSize: 'cover', backgroundAttachment: 'scroll' }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'var(--sw-bg-overlay)' }} />
+    <div style={{ position: 'relative', zIndex: 10 }}>{children}</div>
+  </div>
+);
+
+// MarketPanel — full market detail (My Markets drawer mode)
+const MarketPanel = ({ market, savedSnap, thresholdPct }) => {
+  if (!market) return <p className="text-gray-300 text-xl text-center py-3">No market data available right now.</p>;
+
+  const status = (market.status || '').toLowerCase();
+  const result = (market.result || '').toLowerCase();
+  const last = market.last_price;
+  const savedLast = savedSnap ? savedSnap.last_price : null;
+  const noPrice = (last !== null && last !== undefined) ? (100 - last) : null;
+
+  // Status badge color
+  var badgeColor = 'bg-emerald-700';
+  var badgeText = 'OPEN';
+  if (result === 'yes') { badgeColor = 'bg-emerald-700'; badgeText = 'RESOLVED YES'; }
+  else if (result === 'no') { badgeColor = 'bg-red-700'; badgeText = 'RESOLVED NO'; }
+  else if (status === 'closed' || status === 'settled' || status === 'determined' || status === 'finalized') { badgeColor = 'bg-slate-600'; badgeText = 'CLOSED'; }
+
+  // Price delta vs saved
+  var deltaText = '';
+  var deltaColor = 'text-gray-300';
+  if (typeof last === 'number' && typeof savedLast === 'number' && last !== savedLast) {
+    const delta = last - savedLast;
+    const pct = (delta / savedLast) * 100;
+    deltaText = (delta > 0 ? '+' : '') + delta + '¢ (' + (delta > 0 ? '+' : '') + pct.toFixed(1) + '%)';
+    deltaColor = delta > 0 ? 'text-emerald-400' : 'text-red-400';
+  }
+
+  const countdown = fmtCountdown(market.close_time);
+
+  return (
+    <div className="space-y-3">
+      <div className={'px-4 py-2 rounded-xl text-center ' + badgeColor}>
+        <p className="text-white font-bold text-2xl tracking-wider">{badgeText}</p>
+      </div>
+
+      {/* Big YES price */}
+      <div className="bg-black/40 border border-white/10 rounded-xl p-4 text-center">
+        <p className="text-gray-400 text-sm uppercase tracking-wide mb-1">Current YES</p>
+        <p className="text-white text-6xl font-bold" style={{ fontFamily: 'var(--sw-display-font)' }}>{fmtPrice(last)}</p>
+        {deltaText && <p className={'text-xl font-bold mt-1 ' + deltaColor}>{deltaText}</p>}
+        {savedLast !== null && savedLast !== undefined && (
+          <p className="text-gray-400 text-base mt-2">You saved at {fmtPrice(savedLast)}</p>
+        )}
+      </div>
+
+      {/* NO / volume / countdown row */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-black/30 border border-white/10 rounded-lg p-3 text-center">
+          <p className="text-gray-400 text-xs uppercase mb-1">NO</p>
+          <p className="text-white text-2xl font-bold">{fmtPrice(noPrice)}</p>
+        </div>
+        <div className="bg-black/30 border border-white/10 rounded-lg p-3 text-center">
+          <p className="text-gray-400 text-xs uppercase mb-1">Vol 24h</p>
+          <p className="text-white text-2xl font-bold">{fmtVolume(market.volume_24h)}</p>
+        </div>
+        <div className="bg-black/30 border border-white/10 rounded-lg p-3 text-center">
+          <p className="text-gray-400 text-xs uppercase mb-1">Closes</p>
+          <p className="text-white text-2xl font-bold">{countdown || '—'}</p>
+        </div>
+      </div>
+
+      {/* Sub-titles */}
+      {(market.yes_sub_title || market.no_sub_title) && (
+        <div className="bg-black/30 border border-white/10 rounded-xl p-3">
+          {market.yes_sub_title && <p className="text-emerald-300 text-base mb-1"><span className="font-bold">YES:</span> {market.yes_sub_title}</p>}
+          {market.no_sub_title && <p className="text-red-300 text-base"><span className="font-bold">NO:</span> {market.no_sub_title}</p>}
+        </div>
+      )}
+
+      {/* Threshold + close time + category */}
+      <div className="bg-black/30 border border-white/10 rounded-xl p-3 space-y-1">
+        <div className="flex justify-between text-white text-base">
+          <span className="text-gray-400">Alert threshold</span>
+          <strong>{thresholdPct || DEFAULT_THRESHOLD}%</strong>
+        </div>
+        {market.close_time && (
+          <div className="flex justify-between text-white text-base">
+            <span className="text-gray-400">Close time</span>
+            <strong>{new Date(market.close_time).toLocaleString()}</strong>
+          </div>
+        )}
+        {market.category && (
+          <div className="flex justify-between text-white text-base">
+            <span className="text-gray-400">Category</span>
+            <strong>{market.category}</strong>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+function App() {
+  const [page, setPage] = useState('login');
+  const [auth, setAuth] = useState(false);
+  const [user, setUser] = useState(null);
+  const [watchlist, setWatchlist] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [searchResults, setSearchResults] = useState(null);
+  const [searched, setSearched] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [selectedMarket, setSelectedMarket] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingSave, setLoadingSave] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [backendWaking, setBackendWaking] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showDangerZone, setShowDangerZone] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [drawerData, setDrawerData] = useState(null);
+  const [autoOpenId, setAutoOpenId] = useState(null);
+  const [apiVersion, setApiVersion] = useState('...');
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2400);
+  };
+
+  useEffect(() => {
+    fetch(API_BASE + '/health').then(r => r.json()).then(d => setApiVersion(d.version || '?')).catch(() => setApiVersion('?'));
+    const t = localStorage.getItem('token');
+    const u = localStorage.getItem('user');
+    if (t && u) { setUser(JSON.parse(u)); setAuth(true); setPage('search'); loadWatchlist(); loadNotifications(); }
+  }, []);
+
+  useEffect(() => {
+    if (autoOpenId && page === 'mymarkets' && watchlist.length > 0) {
+      const wItem = watchlist.find(w => w.id === autoOpenId);
+      if (wItem) { openMyMarketsDrawer(wItem); setAutoOpenId(null); }
+    }
+    // eslint-disable-next-line
+  }, [autoOpenId, page, watchlist]);
+
+  const loadWatchlist = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(API_BASE + '/watchlist', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('Failed');
+      setWatchlist(await r.json());
+    } catch (e) { console.error(e); }
+  };
+  const loadNotifications = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(API_BASE + '/notifications', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('Failed');
+      setNotifications(await r.json());
+    } catch (e) { console.error(e); }
+  };
+  const dismissAlert = async (notifId) => {
+    const token = localStorage.getItem('token');
+    setNotifications(prev => prev.filter(n => n.id !== notifId));
+    try { await fetch(API_BASE + '/notifications/' + notifId, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } }); } catch(e) {}
+  };
+  const viewAlert = (n) => {
+    const wItem = watchlist.find(w => w.id === n.watchlist_id);
+    if (wItem) { setPage('mymarkets'); setAutoOpenId(wItem.id); }
+  };
+  const doAuth = async (authMode) => {
+    if (!email || !password) return;
+    setLoading(true); setBackendWaking(false);
+    const wakeTimer = setTimeout(() => setBackendWaking(true), 3000);
+    try {
+      const endpoint = authMode === 'register' ? 'register' : 'login';
+      const r = await fetch(API_BASE + '/auth/' + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+      clearTimeout(wakeTimer); setBackendWaking(false);
+      if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Auth failed'); }
+      const data = await r.json();
+      localStorage.setItem('token', data.access_token);
+      const u = { email, id: '123', name: email.split('@')[0] };
+      localStorage.setItem('user', JSON.stringify(u));
+      setUser(u); setAuth(true); setPage('search');
+      loadWatchlist(); loadNotifications();
+    } catch (error) { clearTimeout(wakeTimer); setBackendWaking(false); alert('Error: ' + error.message); }
+    finally { setLoading(false); }
+  };
+  const doLogout = () => {
+    localStorage.removeItem('token'); localStorage.removeItem('user');
+    setAuth(false); setUser(null); setWatchlist([]); setNotifications([]);
+    setSearchResults(null); setSearched(false); setSelectedMarket(null); setPage('login');
+  };
+  const doDeleteAccount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(API_BASE + '/account', { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('Failed');
+      doLogout(); alert('Your account has been permanently deleted.');
+    } catch (error) { alert('Error: ' + error.message); }
+  };
+  const clearSearch = () => { setSearchResults(null); setSearched(false); setSelectedMarket(null); setSearchQuery(''); };
+  const isOnList = (ticker) => { if (!ticker) return false; return !!watchlist.find(w => { const m = parseMeta(w.location); return m && m.ticker === ticker; }); };
+  const parseMeta = (locationField) => { if (!locationField) return null; try { return JSON.parse(locationField); } catch(e) { return null; } };
+
+  const doSearch = async () => {
+    if (document.activeElement) document.activeElement.blur();
+    const q = (searchQuery || '').trim();
+    if (!q || q.length < 2) { alert('Please enter a search keyword.'); return; }
+    setSearching(true); setSearchResults(null); setSelectedMarket(null);
+    try {
+      const markets = await fetchKalshiSearch(q);
+      setSearchResults({ markets, query: q });
+      setSearched(true);
+      if (markets.length === 1) setSelectedMarket(markets[0]);
+    } catch(e) { setSearchResults({ markets: [], query: q }); setSearched(true); }
+    finally { setSearching(false); }
+  };
+
+  // SAVE: POST → fetch full market → store snapshot → navigate → auto-open My Markets drawer
+  const saveMarket = async () => {
+    if (!selectedMarket) return;
+    if (isOnList(selectedMarket.ticker)) { alert('That market is already on your watchlist.'); return; }
+    const title = selectedMarket.title || selectedMarket.subtitle || selectedMarket.ticker;
+    setLoadingSave(true);
+    try {
+      const token = localStorage.getItem('token');
+      const meta = JSON.stringify({
+        platform: 'kalshi',
+        ticker: selectedMarket.ticker,
+        event_ticker: selectedMarket.event_ticker,
+        subtitle: selectedMarket.subtitle || '',
+        yes_sub_title: selectedMarket.yes_sub_title || '',
+        no_sub_title: selectedMarket.no_sub_title || '',
+        category: selectedMarket.category || '',
+        close_time: selectedMarket.close_time || '',
+        savedYesPrice: selectedMarket.last_price,
+        savedAt: new Date().toISOString(),
+        threshold: DEFAULT_THRESHOLD
+      });
+      const r = await fetch(API_BASE + '/watchlist', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ name: title, location: meta })
+      });
+      if (!r.ok) throw new Error('Failed');
+      var newId = null;
+      try { const created = await r.json(); newId = created.id || null; } catch(e) {}
+
+      // Fetch fresh market data and snapshot to localStorage
+      const fresh = await fetchKalshiMarket(selectedMarket.ticker).catch(() => null);
+      const snap = buildSnapshot(fresh || selectedMarket);
+      if (snap && newId) saveSnapshot(newId, snap);
+
+      await loadWatchlist();
+      if (!newId) {
+        const list = await (await fetch(API_BASE + '/watchlist', { headers: { 'Authorization': 'Bearer ' + token } })).json();
+        const found = list.find(w => { const m = parseMeta(w.location); return m && m.ticker === selectedMarket.ticker; });
+        if (found) {
+          newId = found.id;
+          if (snap) saveSnapshot(newId, snap);
+        }
+      }
+      clearSearch(); setPage('mymarkets');
+      if (newId) setAutoOpenId(newId);
+    } catch(e) { alert('Error: ' + e.message); }
+    finally { setLoadingSave(false); }
+  };
+
+  const delMarket = async (id) => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(API_BASE + '/watchlist/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('Failed');
+      deleteSnapshotLocal(id);
+      await loadWatchlist();
+    } catch (error) { alert('Error: ' + error.message); }
+  };
+
+  // Watchlist drawer (light): title + saved price + Check button
+  const openWatchlistDrawer = async (wItem) => {
+    const meta = parseMeta(wItem.location);
+    const snap = getSnapshot(wItem.id);
+    setDrawerData({ mode: 'watchlist', name: wItem.name, watchlistId: wItem.id, meta: meta, snapshot: snap, market: null, loading: false });
+  };
+
+  // My Markets drawer (full): re-fetch fresh Kalshi data
+  const openMyMarketsDrawer = async (wItem) => {
+    const meta = parseMeta(wItem.location);
+    let snap = getSnapshot(wItem.id);
+    setDrawerData({ mode: 'mymarkets', name: wItem.name, watchlistId: wItem.id, meta: meta, snapshot: snap, market: null, loading: true });
+    if (meta && meta.ticker) {
+      const fresh = await fetchKalshiMarket(meta.ticker).catch(() => null);
+      if (fresh) {
+        const newSnap = buildSnapshot(fresh);
+        if (newSnap) { saveSnapshot(wItem.id, newSnap); snap = newSnap; }
+        setDrawerData(prev => prev ? Object.assign({}, prev, { market: fresh, snapshot: snap, loading: false }) : null);
+      } else {
+        setDrawerData(prev => prev ? Object.assign({}, prev, { loading: false }) : null);
+      }
+    } else {
+      setDrawerData(prev => prev ? Object.assign({}, prev, { loading: false }) : null);
+    }
+  };
+
+  // Check for price move (transforms watchlist drawer into mymarkets drawer if changed)
+  const checkForPriceMove = async () => {
+    if (!drawerData || !drawerData.watchlistId) return;
+    const meta = drawerData.meta;
+    if (!meta || !meta.ticker) { alert('No Kalshi ticker linked to this market.'); return; }
+    setChecking(true);
+    try {
+      const fresh = await fetchKalshiMarket(meta.ticker);
+      if (!fresh) { alert('Could not reach Kalshi. Try again later.'); return; }
+      const newSnap = buildSnapshot(fresh);
+      const oldSnap = getSnapshot(drawerData.watchlistId);
+      const threshold = (meta && meta.threshold) || DEFAULT_THRESHOLD;
+      if (!snapshotChanged(oldSnap, newSnap, threshold)) {
+        showToast('No move past your threshold');
+        return;
+      }
+      saveSnapshot(drawerData.watchlistId, newSnap);
+      setDrawerData(prev => prev ? Object.assign({}, prev, { mode: 'mymarkets', snapshot: newSnap, market: fresh }) : null);
+    } catch(e) { alert('Error: ' + e.message); }
+    finally { setChecking(false); }
+  };
+
+  const unreadCount = notifications.length;
+  const iClass = "w-full px-4 py-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-teal-400 text-xl bg-black/40 text-white placeholder-gray-400";
+  const cardClass = "rounded-2xl p-4 shadow-lg backdrop-blur-sm";
+  const cardStyle = { backgroundColor: 'var(--sw-card-bg)', borderColor: 'var(--sw-card-border)', borderWidth: '1px' };
+  const containerClass = (page === 'about') ? 'w-full max-w-3xl mx-auto px-3' : 'w-full px-3';
+
+  const MarketCard = ({ market, showSaveButton }) => {
+    if (!market) return null;
+    const title = market.title || market.subtitle || market.ticker;
+    const alreadySaved = isOnList(market.ticker);
+    const last = market.last_price;
+    const noPrice = (last !== null && last !== undefined) ? (100 - last) : null;
+    return (
+      <div className="rounded-2xl overflow-hidden border border-white/15 shadow-lg" style={{ backgroundColor: 'rgba(10,21,37,0.65)' }}>
+        <div className="px-5 py-3 text-center" style={{ background: 'linear-gradient(90deg, #0d3a3a, #0a1f4a)' }}>
+          <p className="text-white font-bold text-2xl leading-snug">{title}</p>
+          {market.category && <p className="text-white/70 text-base uppercase tracking-wider mt-1">{market.category}</p>}
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-black/30 border border-white/10 rounded-lg p-3 text-center">
+              <p className="text-gray-400 text-xs uppercase mb-1">YES</p>
+              <p className="text-emerald-300 text-3xl font-bold" style={{ fontFamily: 'var(--sw-display-font)' }}>{fmtPrice(last)}</p>
+            </div>
+            <div className="bg-black/30 border border-white/10 rounded-lg p-3 text-center">
+              <p className="text-gray-400 text-xs uppercase mb-1">NO</p>
+              <p className="text-red-300 text-3xl font-bold" style={{ fontFamily: 'var(--sw-display-font)' }}>{fmtPrice(noPrice)}</p>
+            </div>
+            <div className="bg-black/30 border border-white/10 rounded-lg p-3 text-center">
+              <p className="text-gray-400 text-xs uppercase mb-1">Closes</p>
+              <p className="text-white text-xl font-bold">{fmtCountdown(market.close_time) || '—'}</p>
+            </div>
+          </div>
+          {market.yes_sub_title && <p className="text-emerald-200 text-base"><span className="font-bold">YES:</span> {market.yes_sub_title}</p>}
+          {market.no_sub_title && <p className="text-red-200 text-base"><span className="font-bold">NO:</span> {market.no_sub_title}</p>}
+          {market.volume_24h !== undefined && market.volume_24h !== null && <p className="text-gray-400 text-base">Vol 24h: <strong className="text-white">{fmtVolume(market.volume_24h)}</strong></p>}
+          {showSaveButton && (
+            <div className="space-y-2 pt-2">
+              {alreadySaved ? <p className="text-emerald-300 text-xl text-center font-bold">Already on your watchlist</p> : <button onClick={saveMarket} disabled={loadingSave} className="w-full py-4 text-white rounded-xl font-bold text-2xl flex items-center justify-center gap-2 disabled:opacity-50" style={{ backgroundColor: 'var(--sw-accent)' }}><PlusIcon /> {loadingSave ? 'Saving...' : 'Save Market'}</button>}
+              <button onClick={clearSearch} className="w-full py-3 bg-white/10 border border-white/20 text-white/80 rounded-xl text-xl text-center">Clear Search</button>
+            </div>
+          )}
+          <p className="text-gray-400 text-sm text-center pt-1">Prices: Kalshi</p>
+        </div>
+      </div>
+    );
+  };
+
+  const Drawer = () => {
+    if (!drawerData) return null;
+    const { mode, name, meta, snapshot, market, loading: drawerLoading } = drawerData;
+    const threshold = (meta && meta.threshold) || DEFAULT_THRESHOLD;
+    return (
+      <>
+        <div className="modal-overlay" onClick={() => setDrawerData(null)} />
+        <div className="modal-drawer">
+          <div className="flex justify-between items-center px-4 pt-4 pb-2 border-b border-white/15">
+            <h3 className="text-white font-bold text-2xl leading-snug pr-2">{name}</h3>
+            <button onClick={() => setDrawerData(null)} className="text-gray-400 hover:text-white text-2xl font-bold shrink-0">X</button>
+          </div>
+          <div className="p-4">
+            {drawerLoading && <div className="text-center py-8"><p className="text-white animate-pulse text-xl">Loading...</p></div>}
+            {!drawerLoading && (
+              <>
+                {mode === 'watchlist' && (
+                  <div className="space-y-3">
+                    <div className="bg-black/40 border border-white/10 rounded-xl p-4 text-center">
+                      <p className="text-gray-400 text-sm uppercase tracking-wide mb-1">You saved at</p>
+                      <p className="text-white text-5xl font-bold" style={{ fontFamily: 'var(--sw-display-font)' }}>{snapshot ? fmtPrice(snapshot.last_price) : '—'}</p>
+                      {snapshot && snapshot.capturedAt && <p className="text-gray-400 text-base mt-2">{new Date(snapshot.capturedAt).toLocaleString()}</p>}
+                    </div>
+                    {(meta && meta.yes_sub_title) && <p className="text-emerald-200 text-base text-center"><span className="font-bold">YES:</span> {meta.yes_sub_title}</p>}
+                    <p className="text-gray-400 text-base text-center">Alert threshold: <strong className="text-white">{threshold}%</strong></p>
+                    <button onClick={checkForPriceMove} disabled={checking} className="w-full py-4 text-white rounded-xl font-bold text-2xl flex items-center justify-center gap-2 disabled:opacity-50" style={{ backgroundColor: 'var(--sw-accent)' }}>
+                      <RefreshIcon /> {checking ? 'Checking...' : 'Check current price'}
+                    </button>
+                  </div>
+                )}
+                {mode === 'mymarkets' && <MarketPanel market={market} savedSnap={snapshot} thresholdPct={threshold} />}
+                {mode === 'mymarkets' && snapshot && snapshot.capturedAt && (<p className="text-white/40 text-sm text-center mt-3">Last updated {new Date(snapshot.capturedAt).toLocaleString()}</p>)}
+                {mode === 'mymarkets' && (<p className="text-gray-400 text-sm text-center mt-2">Prices: Kalshi</p>)}
+              </>
+            )}
+            <button onClick={() => setDrawerData(null)} className="w-full py-4 bg-white/10 border border-white/20 text-white rounded-xl text-xl mt-4">Close</button>
+          </div>
+        </div>
+      </>
+    );
+  };
+
+  if (page === 'login') {
+    return (
+      <div style={{ minHeight: '100dvh', width: '100%', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'stretch', paddingTop: 'env(safe-area-inset-top)', paddingBottom: '2rem', backgroundColor: '#0a1525' }}>
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(' + SIGNIN_BG + ')', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', filter: 'var(--sw-signin-blur)', zIndex: 0 }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(10,21,37,0.35)', zIndex: 1 }} />
+        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'stretch', flex: 1, justifyContent: 'center' }}>
+          <div style={{ textAlign: 'center', padding: '2rem 1.5rem 1.5rem' }}>
+            <h1 style={{ color: '#fff', fontSize: isPhone ? '5rem' : '7rem', fontWeight: 700, fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', lineHeight: 0.9, textShadow: '0 4px 20px rgba(0,0,0,0.95), 0 2px 8px rgba(0,0,0,0.9)', margin: 0, textTransform: 'uppercase' }}>Stakes<br/>Watch</h1>
+            <p style={{ color: '#fff', fontSize: isPhone ? '1.8rem' : '2.2rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', lineHeight: 1.15, textShadow: '0 2px 8px rgba(0,0,0,0.9)', marginTop: '1.25rem', textTransform: 'uppercase', fontWeight: 500 }}>What stakes<br/>are you watching?</p>
+          </div>
+          <div style={{ paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+            <div className="rounded-2xl p-4 shadow-2xl space-y-3" style={{ backgroundColor: 'rgba(10,21,37,0.75)', backdropFilter: 'blur(8px)', borderColor: 'var(--sw-card-border)', borderWidth: '1px' }}>
+              <input type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && doAuth('login')} className="w-full px-4 py-3 rounded-xl bg-white/15 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-teal-400 text-xl" />
+              <div className="relative">
+                <input type={showPassword ? 'text' : 'password'} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && doAuth('login')} className="w-full px-4 py-3 rounded-xl bg-white/15 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-teal-400 text-xl" />
+                <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60">{showPassword ? <EyeOffIcon /> : <EyeIcon />}</button>
+              </div>
+              {backendWaking && <p className="text-white/60 text-xl text-center animate-pulse">Waking up the server...</p>}
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => doAuth('login')} disabled={loading} className="py-4 text-white font-bold rounded-xl disabled:opacity-50 text-2xl" style={{ backgroundColor: 'var(--sw-accent)' }}>{loading ? '...' : 'Sign In'}</button>
+                <button onClick={() => doAuth('register')} disabled={loading} className="py-4 text-white font-bold rounded-xl disabled:opacity-50 text-2xl border" style={{ backgroundColor: 'rgba(0,212,184,0.25)', borderColor: 'rgba(255,255,255,0.4)' }}>{loading ? '...' : 'Register'}</button>
+              </div>
+              <p className="text-white/50 text-xl text-center">You'll stay signed in automatically</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PageWrapper>
+      <Drawer />
+      {toast && (
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(6rem + env(safe-area-inset-bottom))', zIndex: 200, backgroundColor: 'var(--sw-accent)', color: '#0a1525', padding: '1.1rem 1.8rem', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.25)', fontSize: '1.5rem', fontWeight: 700, boxShadow: '0 6px 20px rgba(0,0,0,0.6)', whiteSpace: 'nowrap' }}>{toast}</div>
+      )}
+      <div className={containerClass}>
+
+        {page === 'search' && (
+          <div className="space-y-3" style={{ paddingTop: PT }}>
+            <div className="flex flex-col items-center" style={{ height: PT, marginTop: '-' + PT, paddingTop: '4rem', paddingBottom: '1.5rem', pointerEvents: 'none' }}>
+              <h1 className="text-white text-center" style={{ fontSize: isPhone ? '5rem' : '7rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', lineHeight: 0.9, textShadow: '0 4px 16px rgba(0,0,0,0.9)', textTransform: 'uppercase', fontWeight: 700 }}>Stakes<br/>Watch</h1>
+              <p className="text-white text-center" style={{ fontSize: isPhone ? '1.8rem' : '2.4rem', fontFamily: 'var(--sw-display-font)', letterSpacing: '0.04em', lineHeight: 1.05, textShadow: '0 2px 8px rgba(0,0,0,0.9)', marginTop: '1rem', textTransform: 'uppercase', fontWeight: 500 }}>What stakes are<br/>you watching?</p>
+            </div>
+            <div className={cardClass} style={Object.assign({}, cardStyle, { overflowY: 'auto', maxHeight: 'calc(100dvh - ' + PT + ' - 6rem)' })}>
+              {searching && <p className="text-white text-center py-4 animate-pulse text-xl">Searching Kalshi...</p>}
+              {!searched ? (
+                <div className="space-y-2">
+                  <ClearableInput value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && doSearch()} placeholder="Search markets (e.g. Fed, Bitcoin, hurricane)" inputClass={iClass} />
+                  <button onClick={doSearch} disabled={searching} className="w-full py-3 text-white rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 text-2xl font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>
+                    <SearchIcon /> {searching ? 'Searching...' : 'Find Markets'}
+                  </button>
+                  <p className="text-gray-300 text-sm text-center">Politics, Fed, crypto, sports, weather, awards, and more</p>
+                </div>
+              ) : (<SearchResultView />)}
+            </div>
+          </div>
+        )}
+
+        {page === 'watchlist' && (
+          <div className="space-y-3" style={{ paddingTop: '1rem' }}>
+            <div className={cardClass} style={cardStyle}>
+              <CardPageHeader title="Watchlist" subtitle="Tap a market -- check current price" />
+              {watchlist.length === 0 && (<div className="py-6 text-center"><p className="text-gray-200 text-xl leading-relaxed mb-2">No markets yet.</p><p className="text-white text-xl font-medium">Use Search to add markets.</p></div>)}
+              {watchlist.length > 0 && (
+                <div className="space-y-2 mt-2">
+                  {watchlist.map(w => {
+                    const meta = parseMeta(w.location);
+                    const snap = getSnapshot(w.id);
+                    return (
+                      <div key={w.id} className="p-4 rounded-lg border bg-black/40 border-white/15">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <button onClick={() => openWatchlistDrawer(w)} className="text-left w-full">
+                              <h3 className="font-semibold text-2xl text-white underline decoration-dotted leading-snug">{w.name}</h3>
+                            </button>
+                            <div className="flex items-center gap-3 mt-1 flex-wrap">
+                              {snap && snap.last_price !== undefined && <span className="text-emerald-300 text-xl font-bold">{fmtPrice(snap.last_price)} YES</span>}
+                              {meta && meta.category && <span className="text-white/60 text-base uppercase">{meta.category}</span>}
+                              {meta && meta.close_time && <span className="text-white/60 text-base">{fmtCountdown(meta.close_time)} to close</span>}
+                            </div>
+                            {w.is_resolved && <div className="flex items-center gap-1 mt-1"><span className={'text-xl font-bold ' + (w.resolution_outcome === 'YES' ? 'text-emerald-300' : 'text-red-300')}>Resolved {w.resolution_outcome}</span></div>}
+                            {!w.is_resolved && <div className="flex items-center gap-1 mt-1"><CheckIcon /><span className="text-xl text-green-300">Watching</span></div>}
+                          </div>
+                          <button onClick={() => delMarket(w.id)} className="p-2 text-red-400 hover:bg-red-900/30 rounded-lg ml-2 shrink-0"><TrashIcon /></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {page === 'mymarkets' && (
+          <div className="space-y-3" style={{ paddingTop: '1rem' }}>
+            <div className={cardClass} style={cardStyle}>
+              <CardPageHeader title="My Markets" subtitle="Live prices and resolution status" />
+              {watchlist.length === 0 ? (<div className="text-center py-6"><p className="text-gray-200 text-xl leading-relaxed">Search for a market and save it here.</p></div>) : (
+                <div className="space-y-3">
+                  <p className="text-gray-300 text-lg text-center mb-1">Tap a market for live data</p>
+                  {watchlist.map(w => {
+                    const meta = parseMeta(w.location);
+                    const snap = getSnapshot(w.id);
+                    return (
+                      <div key={w.id} className="p-4 bg-black/50 rounded-lg border border-white/15">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <button onClick={() => openMyMarketsDrawer(w)} className="text-left w-full">
+                              <h3 className="font-semibold text-2xl text-white underline decoration-dotted leading-snug">{w.name}</h3>
+                            </button>
+                            <div className="flex items-center gap-3 mt-2 flex-wrap">
+                              {snap && snap.last_price !== undefined && <span className="text-emerald-300 text-2xl font-bold" style={{ fontFamily: 'var(--sw-display-font)' }}>{fmtPrice(snap.last_price)}</span>}
+                              {meta && meta.category && <span className="text-white/60 text-base uppercase">{meta.category}</span>}
+                            </div>
+                            {meta && meta.close_time && <p className="text-base text-white/60 mt-1">{fmtCountdown(meta.close_time)} to close</p>}
+                            {w.is_resolved && <p className={'text-xl font-bold mt-1 ' + (w.resolution_outcome === 'YES' ? 'text-emerald-300' : 'text-red-300')}>Resolved {w.resolution_outcome}</p>}
+                          </div>
+                          <button onClick={() => delMarket(w.id)} className="p-2 text-red-400 hover:bg-red-900/30 rounded-lg ml-2 shrink-0"><TrashIcon /></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {page === 'notifications' && (
+          <div className="space-y-3" style={{ paddingTop: '1rem' }}>
+            <div className={cardClass} style={cardStyle}>
+              <CardPageHeader title="Alerts" subtitle="Price moves, resolutions, time-to-close" />
+              {notifications.length === 0 ? (<div className="text-center py-4"><p className="text-white font-bold text-2xl">No alerts yet</p><p className="text-gray-200 text-xl mt-1">We check your markets every hour.</p></div>) : (
+                <div className="space-y-3">
+                  {notifications.map(n => (
+                    <div key={n.id} className="p-3 bg-black/50 border border-white/15 rounded-xl">
+                      <h3 className="font-bold text-white text-xl mb-1 leading-snug">{n.name}</h3>
+                      <p className="text-gray-200 text-xl">{n.message}</p>
+                      <p className="text-gray-400 text-base mt-1 mb-2">{new Date(n.created_at).toLocaleString()}</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => viewAlert(n)} className="flex-1 py-2 text-white rounded-lg text-xl font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>View</button>
+                        <button onClick={() => dismissAlert(n.id)} className="flex-1 py-2 bg-transparent border border-white/30 text-white/80 rounded-lg text-xl">Dismiss</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {page === 'about' && (
+          <div className="space-y-4 pb-8" style={{ paddingTop: '1rem' }}>
+            <div className={cardClass} style={cardStyle}>
+              <div className="mb-3 pb-2 border-b border-white/15 text-center">
+                <h2 className="text-4xl font-bold text-white" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>About</h2>
+                <h2 className="text-4xl font-bold text-white" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{APP_NAME}</h2>
+              </div>
+              <p className="text-white/80 italic text-xl text-center mb-3">v{APP_VERSION}</p>
+              <div className="flex items-center gap-4 mb-4">
+                <img src={BILL_PHOTO} alt="Bill Spencer" className="w-14 h-14 rounded-full object-cover border-2 border-white/30 shrink-0" />
+                <div>
+                  <p className="font-bold text-white text-xl">Bill Spencer</p>
+                  <p className="text-white/70 italic text-xl">Founder</p>
+                  <a href="mailto:hello@stakeswatch.app" className="text-white/80 text-xl mt-1 block">hello@stakeswatch.app</a>
+                </div>
+              </div>
+              <p className="text-white text-2xl font-bold italic mb-3">{TAGLINE}</p>
+              <div className="space-y-3 text-gray-100 text-xl leading-relaxed">
+                <p>The prediction markets you care about, all in one place.</p>
+                <p>Add any open market on Kalshi — politics, the Fed, crypto, sports, weather, awards — to your watchlist. Stakes Watch tracks the price and tells you when it moves past your threshold, when it's about to resolve, and when it does.</p>
+                <p>We're not a broker. We don't take trades. We just watch the markets you pick.</p>
+              </div>
+            </div>
+            <div className={cardClass} style={cardStyle}>
+              <h3 className="text-white text-2xl font-bold mb-4 text-center" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>How it works</h3>
+              <div className="space-y-4">
+                <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">1.</span><p className="text-gray-100 text-xl">Search for a market by keyword: "Fed", "Bitcoin", "Super Bowl", "hurricane".</p></div>
+                <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">2.</span><p className="text-gray-100 text-xl">Save the ones you want to follow. We capture the current YES price.</p></div>
+                <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">3.</span><p className="text-gray-100 text-xl">Tap a market on Watchlist to check the current price right now.</p></div>
+                <div className="flex gap-3 items-start"><span className="text-white text-2xl font-bold w-7 shrink-0">4.</span><p className="text-gray-100 text-xl">We check every hour. If a market moves past 10%, hits its 24h or 1h close window, or resolves — you get an alert.</p></div>
+              </div>
+            </div>
+            <div className={cardClass} style={cardStyle}>
+              <h3 className="font-bold text-white mb-1 text-2xl" style={{ fontFamily: 'var(--sw-display-font)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Privacy</h3>
+              <p className="text-white/60 text-xl mb-3">Last updated: May 2026</p>
+              <div className="space-y-3 text-gray-100 text-xl leading-relaxed">
+                <p><strong className="text-white">We collect:</strong> your email, watchlist, and search activity.</p>
+                <p><strong className="text-white">We do not:</strong> sell your data, ever. We do not place trades or hold money.</p>
+                <p><strong className="text-white">Sources:</strong> Market data from Kalshi's public API.</p>
+                <p><strong className="text-white">Your rights:</strong> Delete your account and all data anytime.</p>
+                <a href="mailto:hello@stakeswatch.app" className="text-white/80 text-xl">hello@stakeswatch.app</a>
+              </div>
+            </div>
+            <div className={cardClass} style={cardStyle}>
+              <h3 className="text-white text-2xl font-bold mb-3 text-center">Try our other Watchlist apps</h3>
+              <div className="space-y-3">
+                <a href="https://3brains.app" target="_blank" rel="noopener noreferrer"
+                  className="block w-full py-4 text-white text-center rounded-xl text-xl font-semibold"
+                  style={{ backgroundColor: 'var(--sw-accent)' }}>
+                  Visit Our Site
+                </a>
+              </div>
+            </div>
+            <div className="px-1 space-y-3 pb-2">
+              <div className="p-3 bg-black/40 rounded-xl"><p className="font-medium text-white text-xl text-center">{user && user.email}</p></div>
+              <button onClick={doLogout} className="w-full py-4 text-white rounded-xl text-2xl font-bold" style={{ backgroundColor: 'var(--sw-accent)' }}>Sign Out</button>
+              <button onClick={() => setShowDangerZone(!showDangerZone)} className="w-full py-3 text-white/60 text-xl text-center">{showDangerZone ? 'Hide' : 'Account Removal'}</button>
+              {showDangerZone && (
+                <div className="space-y-3">
+                  {!showDeleteConfirm ? <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-4 bg-black/60 border border-white/20 text-red-300 rounded-xl text-xl">Delete Account</button> : <div className="bg-black/80 border border-white/20 rounded-2xl p-5 space-y-3"><h3 className="font-bold text-red-300 text-xl">Are you sure?</h3><p className="text-white/80 text-xl">This permanently deletes your account.</p><button onClick={doDeleteAccount} className="w-full py-4 bg-red-700 text-white rounded-xl font-bold text-xl">Yes, Delete My Account</button><button onClick={() => { setShowDeleteConfirm(false); setShowDangerZone(false); }} className="w-full py-4 bg-white/10 border border-white/20 text-white rounded-xl text-xl">Cancel</button></div>}
+                </div>
+              )}
+            </div>
+            <p className="text-white/40 text-center text-sm pb-4">v{APP_VERSION}</p>
+          </div>
+        )}
+
+      </div>
+
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(10,21,37,0.92)', backdropFilter: 'blur(8px)', borderTop: '1px solid rgba(255,255,255,0.15)', padding: '0.5rem 1rem', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
+        <div className="flex justify-around max-w-sm mx-auto">
+          <button onClick={() => { clearSearch(); setPage('search'); }} className={'flex flex-col items-center gap-0.5 px-1 py-1 ' + (page === 'search' ? 'text-white' : 'text-gray-400')}><SearchIcon /><span className="text-xl font-medium">Search</span></button>
+          <button onClick={() => setPage('watchlist')} className={'flex flex-col items-center gap-0.5 px-1 py-1 ' + (page === 'watchlist' ? 'text-white' : 'text-gray-400')}><HeartIcon /><span className="text-xl font-medium">Watchlist</span></button>
+          <button onClick={() => setPage('mymarkets')} className={'flex flex-col items-center gap-0.5 px-1 py-1 ' + (page === 'mymarkets' ? 'text-white' : 'text-gray-400')}>
+            <ChartIcon />
+            <span className="text-xl font-medium">My Markets</span>
+          </button>
+          <button onClick={() => setPage('about')} className={'flex flex-col items-center gap-0.5 px-1 py-1 ' + (page === 'about' ? 'text-white' : 'text-gray-400')}><InfoIcon /><span className="text-xl font-medium">Info</span></button>
+          <button onClick={() => setPage('notifications')} className={'flex flex-col items-center gap-0.5 px-1 py-1 relative ' + (page === 'notifications' ? 'text-white' : 'text-gray-400')}>
+            <BellIcon red={unreadCount > 0} />
+            {unreadCount > 0 && <span className="absolute top-0 right-1 text-white text-xl font-bold rounded-full w-4 h-4 flex items-center justify-center" style={{ backgroundColor: 'var(--sw-accent-2)' }}>{unreadCount > 9 ? '9+' : unreadCount}</span>}
+            <span className="text-xl font-medium">Alerts</span>
+          </button>
+        </div>
+        <p className="text-center text-white/40 text-xs mt-1" style={{ display: page === 'search' ? 'none' : 'block' }}>app v{APP_VERSION} | api v{apiVersion}</p>
+      </div>
+    </PageWrapper>
+  );
+
+  function SearchResultView() {
+    if (!searchResults) return null;
+    const { markets, query } = searchResults;
+    if (!selectedMarket && markets.length > 1) {
+      return (
+        <div className="rounded-2xl overflow-hidden border border-white/15 shadow-lg" style={{ backgroundColor: 'rgba(10,21,37,0.65)' }}>
+          <div className="px-5 py-3 text-center" style={{ background: 'linear-gradient(90deg, #0d3a3a, #0a1f4a)' }}><p className="text-white font-bold text-2xl">{markets.length} markets found</p><p className="text-white/80 text-xl">Pick one</p></div>
+          <div className="p-4 space-y-2">
+            {markets.map((m, i) => {
+              const title = m.title || m.subtitle || m.ticker;
+              return (
+                <button key={i} onClick={() => setSelectedMarket(m)} className="w-full p-3 bg-black/40 border border-white/15 rounded-xl text-left">
+                  <p className="text-white text-xl font-bold leading-snug">{title}</p>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    {m.last_price !== null && m.last_price !== undefined && <span className="text-emerald-300 text-xl font-bold">{fmtPrice(m.last_price)} YES</span>}
+                    {m.category && <span className="text-white/60 text-sm uppercase">{m.category}</span>}
+                    {m.close_time && <span className="text-white/60 text-sm">{fmtCountdown(m.close_time)} to close</span>}
+                  </div>
+                </button>
+              );
+            })}
+            <button onClick={clearSearch} className="w-full py-3 bg-white/10 border border-white/20 text-white/80 rounded-xl text-xl text-center mt-2">Clear Search</button>
+          </div>
+        </div>
+      );
+    }
+    if (markets.length === 0) {
+      return (
+        <div className="rounded-2xl overflow-hidden border border-white/15 shadow-lg" style={{ backgroundColor: 'rgba(10,21,37,0.65)' }}>
+          <div className="px-5 py-3 text-center" style={{ background: 'linear-gradient(90deg, #0d3a3a, #0a1f4a)' }}><p className="text-white font-bold text-2xl">No markets matched "{query}"</p></div>
+          <div className="p-4">
+            <p className="text-gray-200 text-xl text-center py-2">Try a broader keyword (e.g. "fed", "bitcoin", "election").</p>
+            <button onClick={clearSearch} className="w-full py-3 bg-white/10 border border-white/20 text-white/80 rounded-xl text-xl text-center mt-2">Clear Search</button>
+          </div>
+        </div>
+      );
+    }
+    return <MarketCard market={selectedMarket || markets[0]} showSaveButton={true} />;
+  }
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById('root'));
+</script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
