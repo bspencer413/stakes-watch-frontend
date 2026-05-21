@@ -61,7 +61,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.3.2';
+const APP_VERSION = '0.3.3';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -72,7 +72,7 @@ const DEFAULT_THRESHOLD = 10;
 
 const isPhone = window.innerWidth < 500;
 const isTablet = window.innerWidth >= 500 && window.innerWidth < 1024;
-const PT = isPhone ? '44vh' : isTablet ? '48vh' : '46vh';
+const PT = isPhone ? '40vh' : isTablet ? '44vh' : '42vh';
 
 // ============================================================================
 // AuthGate v0.1 — 3Brains portable account + anonymous-storage component
