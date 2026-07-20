@@ -62,7 +62,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.3.8';
+const APP_VERSION = '0.3.9';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -76,7 +76,7 @@ const isTablet = window.innerWidth >= 500 && window.innerWidth < 1024;
 const PT = isPhone ? '36vh' : isTablet ? '40vh' : '38vh';
 
 // ============================================================================
-// AuthGate v0.3.3 — 3Brains portable account + anonymous-storage component
+// AuthGate v0.3.4 — 3Brains portable account + anonymous-storage component
 // ============================================================================
 //
 // PURPOSE
@@ -141,6 +141,14 @@ const AUTH_GATE_CONFIG = {
   loginEndpoint: '/auth/login',
   registerEndpoint: '/auth/register',
   freeAnonLimit: 5,
+  promoteField: 'in_my_markets',
+  serverPromote: function(id, saved, token) {
+    return fetch(API_BASE + '/watchlist/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ in_my_markets: saved })
+    });
+  },
   appName: 'Stakes Watch',
   saveActionLabel: 'save this market',
   itemNoun: 'markets',
@@ -294,6 +302,12 @@ function useAuthGate(config) {
         const payload = Object.assign({}, anonItem);
         delete payload.id;
         const created = await serverAdd(payload);
+        try {
+          if (config.promoteField && anonItem[config.promoteField]
+              && typeof config.serverPromote === 'function') {
+            await config.serverPromote(created.id, true, readToken());
+          }
+        } catch (e) {}
         // Remap snapshot key if it exists under the temp anon ID
         try {
           const oldKey = config.anonSnapshotPrefix + anonItem.id;
@@ -400,6 +414,27 @@ function useAuthGate(config) {
     setPendingAction({ type: 'callback', fn: callback });
     openSignup('Sign up to ' + config.saveActionLabel + '.');
     return false;
+  };
+
+  const promote = async (id, saved) => {
+    const val = (saved === undefined) ? true : saved;
+    if (isAuthed) {
+      if (typeof config.serverPromote === 'function') {
+        const r = await config.serverPromote(id, val, readToken());
+        if (r && r.ok) await refreshList();
+      }
+      return;
+    }
+    if (!config.promoteField) return;
+    const current = readAnonList();
+    const updated = current.map(function(it) {
+      if (it.id !== id) return it;
+      const c = Object.assign({}, it);
+      c[config.promoteField] = val;
+      return c;
+    });
+    writeAnonList(updated);
+    setList(updated);
   };
 
   // -- Modal submit (calls login or register against backend)
@@ -651,6 +686,7 @@ function useAuthGate(config) {
     remove: remove,
     refreshList: refreshList,
     getToken: readToken,               // v0.3.2: host token reads route here (dual-storage safe)
+    promote: promote,
     requireAuth: requireAuth,
     openSignup: openSignup,
     openSignin: openSignin,
@@ -661,7 +697,7 @@ function useAuthGate(config) {
   };
 }
 
-// === END AuthGate v0.3.3 ======================================================
+// === END AuthGate v0.3.4 ======================================================
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1283,6 +1319,14 @@ function App() {
                 {mode === 'mymarkets' && (<p className="text-gray-400 text-sm text-center mt-2">Prices: Kalshi</p>)}
               </>
             )}
+            {drawerData.watchlistId && (() => {
+              const promoted = (watchlist.find(function(w){return w.id === drawerData.watchlistId;}) || {}).in_my_markets;
+              return (
+                <button onClick={async () => { await gate.promote(drawerData.watchlistId, !promoted); }} className={'w-full py-4 rounded-xl font-bold text-2xl flex items-center justify-center gap-2 mt-3 ' + (promoted ? 'bg-white/10 border border-white/20 text-white' : 'text-white')} style={promoted ? {} : { backgroundColor: 'var(--sw-accent)' }}>
+                  {promoted ? 'Remove from My Markets' : 'Save to My Markets'}
+                </button>
+              );
+            })()}
             <button onClick={() => setDrawerData(null)} className="w-full py-4 bg-white/10 border border-white/20 text-white rounded-xl text-xl mt-4">Close</button>
           </div>
         </div>
@@ -1441,10 +1485,10 @@ function App() {
             <div className={cardClass} style={cardStyle}>
               <CardPageHeader title="My Markets" subtitle="Live prices and resolution status" />
               <gate.CounterBanner />
-              {watchlist.length === 0 ? (<div className="text-center py-6"><p className="text-gray-200 text-xl leading-relaxed">Search for a market and save it here.</p></div>) : (
+              {watchlist.filter(function(w){return w.in_my_markets;}).length === 0 ? (<div className="text-center py-6"><p className="text-gray-200 text-xl leading-relaxed">Save markets from your Watchlist here to build your My Markets list.</p></div>) : (
                 <div className="space-y-3">
                   <p className="text-gray-300 text-lg text-center mb-1">Tap a market for live data</p>
-                  {watchlist.map(w => {
+                  {watchlist.filter(function(w){return w.in_my_markets;}).map(w => {
                     const meta = parseMeta(w.location);
                     const snap = getSnapshot(w.id);
                     return (
