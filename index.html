@@ -62,7 +62,7 @@ const { useState, useEffect } = React;
 
 /* SKIN BLOCK -- mirrors what reskinner v0.3 will produce. */
 const APP_NAME = 'Stakes Watch';
-const APP_VERSION = '0.3.9';
+const APP_VERSION = '0.3.10';
 const API_BASE = 'https://stakes-watch-backend.onrender.com';
 const SW_REPO = 'https://raw.githubusercontent.com/bspencer413/stakes-watch-frontend/main';
 const SIGNIN_BG = SW_REPO + '/sw-bg.jpg';
@@ -1273,7 +1273,7 @@ function App() {
           {market.volume_24h !== undefined && market.volume_24h !== null && <p className="text-gray-400 text-base">Vol 24h: <strong className="text-white">{fmtVolume(market.volume_24h)}</strong></p>}
           {showSaveButton && (
             <div className="space-y-2 pt-2">
-              {alreadySaved ? <p className="text-emerald-300 text-xl text-center font-bold">Already on your watchlist</p> : <button onClick={saveMarket} disabled={loadingSave} className="w-full py-4 text-white rounded-xl font-bold text-2xl flex items-center justify-center gap-2 disabled:opacity-50" style={{ backgroundColor: 'var(--sw-accent)' }}><PlusIcon /> {loadingSave ? 'Saving...' : 'Save Market'}</button>}
+              {alreadySaved ? <p className="text-emerald-300 text-xl text-center font-bold">Already on your watchlist</p> : <button onClick={saveMarket} disabled={loadingSave} className="w-full py-4 text-white rounded-xl font-bold text-2xl flex items-center justify-center gap-2 disabled:opacity-50" style={{ backgroundColor: 'var(--sw-accent)' }}><PlusIcon /> {loadingSave ? 'Saving...' : 'Save to Watchlist'}</button>}
               <button onClick={clearSearch} className="w-full py-3 bg-white/10 border border-white/20 text-white/80 rounded-xl text-xl text-center">Clear Search</button>
             </div>
           )}
